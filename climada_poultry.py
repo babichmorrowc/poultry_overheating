@@ -4,12 +4,16 @@
 # Risk: annual expected days where the indoor temperature exceeds __
 
 import warnings
-import sys
-import os
-import glob
+# import sys
+# import os
+# import glob
 from netCDF4 import Dataset
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.colors as colors
+from matplotlib.gridspec import GridSpec
+import cartopy.crs as ccrs
 
 #import climada functions
 from climada.hazard import Hazard
@@ -24,6 +28,7 @@ from climada.entity import DiscRates
 
 # Set file paths
 DATA_DIR = 'data/'
+OUT_DIR = 'output/'
 
 def define_hazard(file_name, nc1, variable, haz_type, custom_nyears=False):
     """
@@ -99,10 +104,11 @@ def read_exposures_csv(exposure_csv):
     assets= assets.dropna(how="all")
 
     # set the value of the asset to be 1. This represents 1 day of over heating.
-    assets["value"] = 1
+    # assets["value"] = 1
 
     # subset the data we want and set appropriate variable names
-    data = assets[['latitude','longitude', 'value']]
+    # data = assets[['latitude','longitude', 'value']]#
+    data = assets
 
     # create exposure class
     exp = Exposures(data)
@@ -171,6 +177,28 @@ def calc_impact(exp1, impfset1, hazard1):
     print(np.shape(imp1.imp_mat.toarray()))
     return imp1
 
+def calc_impact_ent(ent1, hazard1):
+    """
+    Create an impact class
+
+    Inputs
+    ------
+       ent1: (Object)  an Entity class with a Heat stress instance of
+         exposures and impact function instance for Heat stress
+
+    Returns
+    -------
+         imp1: (Object) an Object that contains the results of impact
+         calculations
+    """
+
+    imp1 = Impact()
+
+    imp1.calc(ent1.exposures, ent1.impact_funcs, hazard1, save_mat='True')
+    print(np.shape(imp1.imp_mat.toarray()))
+    return imp1
+
+
 ##########################################################################################################################################
 # Start with one ensemble member
 ens_mem = '01'
@@ -178,7 +206,7 @@ ens_mem = '01'
 # Define hazard parameters
 # warming_level = 'WL4'
 variable = 'tasmax'
-haz_type = 'Max Temperature'
+haz_type = 'max_temp'
 
 # Define exposure parameters
 exp_unit = 'days'
@@ -206,12 +234,42 @@ exposure_path = DATA_DIR + 'exposure_1.csv'
 exp = read_exposures_csv(exposure_path)
 exp_inst = exposure_instance(exp, exp_unit)
 
+# Add to an entity object
+ent = set_entity(exp_inst)
+
 # add your impact function to the impact function set
 impf_set = ImpactFuncSet()
 # Create a step function for the impact function
 imp_fun = ImpactFunc().from_step_impf(intensity = (min_temp, threshold_temp + temp_diff, max_temp), haz_type = haz_type)
 impf_set.append(imp_fun)
 
+# Add to the entity object
+ent.impact_funcs = impf_set
+
 # calculate impact
 imp = calc_impact(exp, impf_set, hazard)
-# I'm getting this error: AttributeError: Impact calculation not possible. No impact functions found for hazard type Max Temperature in exposures.
+
+# Make some plots
+# Plot the impact function
+fig = plt.figure(figsize=(10,10))
+impf_set.plot()
+plt.xlabel('Max Indoor Temperature ($^\circ$C)')
+plt.title('Vulnerability Function - Poultry Heat Stress')
+plt.show()
+
+# Plot exposure
+# This is hideous but at least it shows there is one dot in every cell
+exp.plot_scatter()
+plt.title('Exposure - Poultry Farms')
+plt.show()
+
+# Hazard plot for an individual event
+hazard.plot_intensity(event=4518, vmin=0, vmax=110)
+plt.title('Intensity for a single event')
+plt.show()
+
+# Impact
+# calc impact for a specific event
+impact_at_events_exp = imp._build_exp_event(4518)
+impact_at_events_exp.plot_scatter(axis=ax4,pop_name=False, norm=norm,s=16)
+plt.set_text('Impact')
