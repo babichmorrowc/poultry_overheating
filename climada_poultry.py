@@ -6,7 +6,7 @@
 import warnings
 # import sys
 # import os
-# import glob
+import glob
 from netCDF4 import Dataset
 import numpy as np
 import pandas as pd
@@ -21,14 +21,42 @@ from climada.entity import Exposures
 from climada.entity import ImpactFunc, ImpactFuncSet
 from climada.entity import Entity
 from climada.engine import Impact, ImpactCalc
-from climada.entity import Measure, MeasureSet
-from climada.engine import CostBenefit
-from climada.engine.cost_benefit import risk_aai_agg
-from climada.entity import DiscRates
+# from climada.entity import Measure, MeasureSet
+# from climada.engine import CostBenefit
+# from climada.engine.cost_benefit import risk_aai_agg
+# from climada.entity import DiscRates
 
 # Set file paths
 DATA_DIR = 'data/'
 OUT_DIR = 'output/'
+
+def read_hazard(warming_level, ens_mem):
+    """
+    Read in hazard data
+
+    Inputs
+    ------
+       warming_level: current, WL2, WL4
+       ens_mem: one of 12 UKCP ensemble members
+
+    Returns
+    -------
+         netcdf_file_path: path of data used
+         netcdf_file: Dataset containing hazard data
+    """
+    if warming_level == 'current':
+        netcdf_file_path = glob.glob(
+                DATA_DIR + f'/UKCP_BC/Timeseries_{ens_mem}_tasmax_1998*')
+    else:
+        netcdf_file_path = glob.glob(
+            DATA_DIR + f'/UKCP_BC/Timeseries_{ens_mem}_tasmax*{warming_level}*')
+
+    print(netcdf_file_path)
+
+    # load in the hazard data (mean_temperature)
+
+    netcdf_file = Dataset(netcdf_file_path[0])
+    return netcdf_file_path[0], netcdf_file
 
 def define_hazard(file_name, nc1, variable, haz_type, custom_nyears=False):
     """
@@ -204,7 +232,6 @@ def calc_impact_ent(ent1, hazard1):
 ens_mem = '01'
 
 # Define hazard parameters
-# warming_level = 'WL4'
 variable = 'tasmax'
 haz_type = 'max_temp'
 
@@ -214,48 +241,17 @@ exp_unit = 'days'
 # Define vulnerability parameters
 int_unit = 'degC'
 
-# read in hazard data
-nc = Dataset(DATA_DIR + f'{ens_mem}/tasmax_rcp85_land-cpm_uk_5km_{ens_mem}_day_20301201-20401130.nc')
-# Get minimum and maximum temperature
-min_temp = np.nanmin(nc.variables[variable][:])
-max_temp = np.nanmax(nc.variables[variable][:])
-# Threshold temperature for poultry heat stress
+# Define temperature threshold
 threshold_temp = 25
 # Temperature differential between outdoor and indoor
-temp_diff = 3
+# temp_diff = 3
 
-# define hazard
-hazard = define_hazard(DATA_DIR + f'{ens_mem}/tasmax_rcp85_land-cpm_uk_5km_{ens_mem}_day_20301201-20401130.nc',
-                       nc, variable,haz_type)
-
+# Read in the exposure data
 # set exposure to 1 in every cell
 # representing possibility of a poultry farm in every location
 exposure_path = DATA_DIR + 'exposure_1.csv'
 exp = read_exposures_csv(exposure_path)
 exp_inst = exposure_instance(exp, exp_unit)
-
-# Add to an entity object
-ent = set_entity(exp_inst)
-
-# add your impact function to the impact function set
-impf_set = ImpactFuncSet()
-# Create a step function for the impact function
-imp_fun = ImpactFunc().from_step_impf(intensity = (min_temp, threshold_temp + temp_diff, max_temp), haz_type = haz_type)
-impf_set.append(imp_fun)
-
-# Add to the entity object
-ent.impact_funcs = impf_set
-
-# calculate impact
-imp = calc_impact(exp, impf_set, hazard)
-
-# Make some plots
-# Plot the impact function
-fig = plt.figure(figsize=(10,10))
-impf_set.plot()
-plt.xlabel('Max Indoor Temperature ($^\circ$C)')
-plt.title('Vulnerability Function - Poultry Heat Stress')
-plt.show()
 
 # Plot exposure
 # This is hideous but at least it shows there is one dot in every cell
@@ -263,13 +259,54 @@ exp.plot_scatter()
 plt.title('Exposure - Poultry Farms')
 plt.show()
 
-# Hazard plot for an individual event
-hazard.plot_intensity(event=4518, vmin=0, vmax=110)
-plt.title('Intensity for a single event')
-plt.show()
+for warming_level in ['current', 'WL2', 'WL4']:
+    # read in hazard data
+    nc_path, nc = read_hazard(warming_level=warming_level, ens_mem=ens_mem)
+    # Get minimum and maximum temperature
+    min_temp = np.nanmin(nc.variables[variable][:])
+    max_temp = np.nanmax(nc.variables[variable][:])
 
-# Impact
-# calc impact for a specific event
-impact_at_events_exp = imp._build_exp_event(4518)
-impact_at_events_exp.plot_scatter(axis=ax4,pop_name=False, norm=norm,s=16)
-plt.set_text('Impact')
+    # define hazard
+    hazard = define_hazard(nc_path,nc,variable,haz_type)
+
+    # Plot hazard
+    # hazard.plot_intensity(event = -1) # intensity of the largest event
+    # hazard.plot_intensity(event = 1000) # intensity of event 1000
+    hazard.plot_intensity(event = 0, vmin=22, vmax=45) # greatest intensity for each point
+    plt.savefig(
+          OUT_DIR + 'figures/hazard_ens_' + ens_mem.zfill(2) + "_" + str(warming_level) + '.png', dpi=500)
+    plt.show(block=False)
+    plt.close()
+
+    for temp_diff in [3, 4, 5]:
+        # add your impact function to the impact function set
+        impf_set = ImpactFuncSet()
+        # Create a step function for the impact function
+        imp_fun = ImpactFunc().from_step_impf(intensity = (min_temp, threshold_temp - temp_diff, max_temp),
+                                              haz_type = haz_type)
+        impf_set.append(imp_fun)
+
+        # calculate impact
+        imp = calc_impact(exp, impf_set, hazard)
+        # Has dimensions of (# of years * 360 days in year) x (number of exposure points)
+        # Save impact
+        imp.write_csv(OUT_DIR + "/ens_" + ens_mem.zfill(2) +
+                            "_" + str(warming_level) + "_tempdiff" + str(temp_diff) + ".csv")
+
+        # Plot the impact function
+        # Check if impact function plot exists already
+        imp_fun_plot_file = OUT_DIR + 'figures/impf_ens_tempdiff' + str(temp_diff) + '.png'
+        if not glob.glob(imp_fun_plot_file):
+            impf_set.plot()
+            plt.xlabel('Max Indoor Temperature ($^\circ$C)')
+            plt.title('Vulnerability Function - Poultry Heat Stress')
+            plt.savefig(imp_fun_plot_file, dpi=500)
+            plt.show(block=False)
+            plt.close()
+
+        # Impact
+        imp.plot_basemap_eai_exposure(vmin = 0, vmax = 165)
+        plt.savefig(
+              OUT_DIR + 'figures/impact_ens_' + ens_mem.zfill(2) + "_" + str(warming_level) + "_tempdiff" + str(temp_diff) + '.png', dpi=500)
+        plt.show(block=False)
+        plt.close()
