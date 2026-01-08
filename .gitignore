@@ -1,3 +1,11 @@
+# Data folder
+data/raw_tasmax
+data/UKCP_BC
+
+# Output folder
+output/figures
+output/report
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

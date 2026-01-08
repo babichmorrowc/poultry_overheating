@@ -11,8 +11,8 @@ from netCDF4 import Dataset
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.colors as colors
-from matplotlib.gridspec import GridSpec
+# import matplotlib.colors as colors
+# from matplotlib.gridspec import GridSpec
 import cartopy.crs as ccrs
 
 #import climada functions
@@ -29,6 +29,21 @@ from climada.engine import Impact, ImpactCalc
 # Set file paths
 DATA_DIR = 'data/'
 OUT_DIR = 'output/'
+
+# Function to plot a location on the map given its index (for troubleshooting)
+def plot_index(file, index):
+    fig, ax = plt.subplots(subplot_kw={'projection': ccrs.PlateCarree()})
+    # File with lat/lon points
+    dat = pd.read_csv(file)
+    # Plot all points in grey
+    ax.scatter(dat['longitude'], dat['latitude'], c="grey", s=12)
+    # Subset to desired index
+    dat_ind = dat.loc[index]
+    ax.scatter(dat_ind['longitude'],dat_ind['latitude'],c="red",s=12)
+    ax.set_xlabel('Longitude')
+    ax.set_ylabel('Latitude')
+    ax.coastlines()
+    return fig
 
 def read_hazard(warming_level, ens_mem):
     """
@@ -274,7 +289,7 @@ for warming_level in ['current', 'WL2', 'WL4']:
     # hazard.plot_intensity(event = 1000) # intensity of event 1000
     hazard.plot_intensity(event = 0, vmin=22, vmax=45) # greatest intensity for each point
     plt.savefig(
-          OUT_DIR + 'figures/hazard_ens_' + ens_mem.zfill(2) + "_" + str(warming_level) + '.png', dpi=500)
+          OUT_DIR + 'figures/hazard_ens_' + ens_mem.zfill(2) + "_" + str(warming_level) + '.png')
     plt.show(block=False)
     plt.close()
 
@@ -298,15 +313,35 @@ for warming_level in ['current', 'WL2', 'WL4']:
         imp_fun_plot_file = OUT_DIR + 'figures/impf_ens_tempdiff' + str(temp_diff) + '.png'
         if not glob.glob(imp_fun_plot_file):
             impf_set.plot()
-            plt.xlabel('Max Indoor Temperature ($^\circ$C)')
+            plt.xlabel('Max Indoor Temperature ($^\circ$C)') # fix this
             plt.title('Vulnerability Function - Poultry Heat Stress')
             plt.savefig(imp_fun_plot_file, dpi=500)
             plt.show(block=False)
             plt.close()
 
         # Impact
-        imp.plot_basemap_eai_exposure(vmin = 0, vmax = 165)
+        imp.plot_basemap_eai_exposure(vmin = 0, vmax = 165, pop_name = False, buffer = 50000)
+        # setting buffer to zoom out is super slow, would love to fix this in CLIMADA later
+        map_ax = plt.gcf().get_axes()[0] # first axis is the map, second is the colorbar
+        map_ax.set_title('')
+        plt.title('')
         plt.savefig(
-              OUT_DIR + 'figures/impact_ens_' + ens_mem.zfill(2) + "_" + str(warming_level) + "_tempdiff" + str(temp_diff) + '.png', dpi=500)
+              OUT_DIR + 'figures/impact_ens_' + ens_mem.zfill(2) + "_" + str(warming_level) + "_tempdiff" + str(temp_diff) + '.png')
         plt.show(block=False)
         plt.close()
+
+# Want to compare EAI in a single location
+# plot_index(DATA_DIR + 'exposure_1.csv', 545)
+# plt.show()
+east_anglia_loc = 545
+# Read in impact data
+# 2 degree warming, 3 degree temperature differential:
+imp_2degwarm_tempdiff3 = Impact.from_csv(OUT_DIR + 'ens_01_WL2_tempdiff3.csv')
+# 2 degree warming, 4 degree temperature differential:
+imp_2degwarm_tempdiff4 = Impact.from_csv(OUT_DIR + 'ens_01_WL2_tempdiff4.csv')
+# 2 degree warming, 5 degree temperature differential:
+imp_2degwarm_tempdiff5 = Impact.from_csv(OUT_DIR + 'ens_01_WL2_tempdiff5.csv')
+
+imp_2degwarm_tempdiff3.eai_exp[east_anglia_loc] # 82.2
+imp_2degwarm_tempdiff4.eai_exp[east_anglia_loc] # 99.90
+imp_2degwarm_tempdiff5.eai_exp[east_anglia_loc] # 116.85
